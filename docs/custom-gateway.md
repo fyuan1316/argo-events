@@ -2,10 +2,10 @@
 
 You can write a gateway in 4 different ways,
 
-1. Core gateway style.
-2. Implement gateway as a gRPC server.
-3. Implement gateway as a HTTP server.
-4. Write your own implementation completely independent of framework.
+1. [Core gateway style](#core-gateway).
+2. [Implement gateway as a HTTP server](#http-gateway).
+3. [Implement gateway as a gRPC server](#grpc-gateway).
+4. [Write your own implementation completely independent of framework](#your-own).
 
 Difference between first three options and fourth is that in options 1,2 and 3, framework provides a mechanism
 to watch configuration updates, start/stop a configuration dynamically. In option 4, its up to
@@ -21,7 +21,7 @@ user to watch configuration updates and take actions.
  |  GATEWAY_NAME             | name of the gateway |
  |  GATEWAY_CONTROLLER_INSTANCE_ID             | gateway controller instance id |
  
-## Core Gateway Style
+## <a name="core-gateway">Core Gateway Style</a>
 The most straightforward option. The gateway consists of two components,
 
 1. Gateway Processor: either generates events internally or listens for external events and then 
@@ -89,39 +89,12 @@ type GatewayConfig struct {
 gatewayConfig.DispatchEvent(event []byte, src string) error
 ```
 
+Step-by-step guide on writing a gateway in core gateway style, [wirting a core gateway](write-core-gateway.md)
+
 For detailed implementation, check out [Core Gateways](https://github.com/argoproj/argo-events/tree/master/gateways/core)
 
-## gRPC gateway
-A gRPC gateway has 3 components, 
-1.  Gateway Processor Server - your implementation of gRPC streaming server, either generates events or listens to 
-external events and streams them back to gateway-processor-client
-
-2. Gateway Processor Client - gRPC client provided by framework that connects to gateway processor server.
-
-3. Gateway Transformer: transforms incoming events into cloudevents specification compliant events 
-   and dispatches them to interested watchers. 
-
-### Architecture
- ![](grpc-gateway.png)
- 
-To implement gateway processor server, you will need to implement
-```proto
-RunGateway(GatewayConfig) returns (stream Event)
-```
-`RunGateway` method takes a gateway configuration and sends events over a stream.
-
-The gateway processor client opens a new connection for each gateway configuration and starts listening to
-events on a stream.
-
-For detailed implementation, check out [Calendar gRPC gateway](https://github.com/argoproj/argo-events/tree/master/gateways/grpc/calendar)
-
-* To run gRPC gateway, you need to provide `rpcPort` in gateway spec.
-
-* To write gateway gRPC server using other languages than go, generate server interfaces using protoc.
-Follow protobuf tutorials []()https://developers.google.com/protocol-buffers/docs/tutorials
-
-## HTTP Gateway
-A gRPC gateway has 3 components, 
+## <a name="http-gateway">HTTP Gateway</a>
+A HTTP gateway has 3 components, 
 1.  Gateway Processor Server - your implementation of HTTP streaming server, either generates events or listens to 
 external events and streams them back to gateway-processor-client. User code must accept POST requests on `/start` and `/stop`
 endpoints.
@@ -150,6 +123,37 @@ List of environment variables available to user code
 | GATEWAY_HTTP_CONFIG_ERROR           | Endpoint on which which gateway processor listens for errors from configurations |
 
 For detailed implementation, check out [Calendar HTTP gateway](https://github.com/argoproj/argo-events/tree/master/gateways/rest/calendar)
+
+
+## <a name="grpc-gateway">gRPC gateway</a>
+A gRPC gateway has 3 components, 
+1.  Gateway Processor Server - your implementation of gRPC streaming server, either generates events or listens to 
+external events and streams them back to gateway-processor-client
+
+2. Gateway Processor Client - gRPC client provided by framework that connects to gateway processor server.
+
+3. Gateway Transformer: transforms incoming events into cloudevents specification compliant events 
+   and dispatches them to interested watchers. 
+
+### Architecture
+ ![](grpc-gateway.png)
+ 
+To implement gateway processor server, you will need to implement
+```proto
+RunGateway(GatewayConfig) returns (stream Event)
+```
+`RunGateway` method takes a gateway configuration and sends events over a stream.
+
+The gateway processor client opens a new connection for each gateway configuration and starts listening to
+events on a stream.
+
+For detailed implementation, check out [Calendar gRPC gateway](https://github.com/argoproj/argo-events/tree/master/gateways/grpc/calendar)
+
+* To run gRPC gateway, you need to provide `rpcPort` in gateway spec.
+
+* To write gateway gRPC server using other languages than go, generate server interfaces using protoc.
+Follow protobuf tutorials []()https://developers.google.com/protocol-buffers/docs/tutorials
+
 
 ## Framework independent
 The fourth option is you provide gateway implementation from scratch: watch the configuration

@@ -68,133 +68,42 @@ Webhook gateway is useful when you want to listen to an incoming HTTP request an
     ```
 
 2) <h5>Next step is to create the webhook gateway,</h5>
-
-    1. Gateway definition,
-        ```yaml
-        apiVersion: argoproj.io/v1alpha1
-        kind: Gateway
-        metadata:
-           # name of the gateway
-          name: webhook-gateway
-          labels:
-            # must match with instance id of one of the gateway controllers. 
-            gateways.argoproj.io/gateway-controller-instanceid: argo-events 
-            gateway-name: "webhook-gateway"
-        spec:
-          # configmap to read configurations from
-          configMap: "webhook-gateway-configmap"
-          # type of gateway
-          type: "webhook"
-          # event dispatch protocol between gateway and it's watchers
-          dispatchMechanism: "HTTP"
-          # version of events this gateway is generating. Required for cloudevents specification
-          version: "1.0"
-          # these are pod specifications
-          deploySpec:
-            containers:
-            - name: "webhook-events"
-              image: "argoproj/webhook-gateway"
-              imagePullPolicy: "Always"
-              command: ["/bin/webhook-gateway"]
-            serviceAccountName: "argo-events-sa"
-          # service specifications to expose gateway
-          serviceSpec:
-            selector:
-              gateway-name: "webhook-gateway"
-            ports:
-              - port: 12000
-                targetPort: 12000
-            type: LoadBalancer
-          # watchers are components interested in listening to events produced by this gateway
-          watchers:
-            sensors:
-            - name: "webhook-sensor"
-        ```
-    
-    2. Run following command,    
+    1. Run,    
         ```bash
         kubectl create -n argo-events -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/gateways/webhook.yaml
         ```
     
-    3. Check all gateway configurations are in `running` state
+    2. Check all gateway configurations are in `running` state
        ```bash
         kubectl get -n argo-events gateways webhook-gateway -o yaml
         ```
 
 3) <h5>Now its time to create webhook sensor.</h5>
-    1. Sensor definition,
-        
-        ```yaml
-        apiVersion: argoproj.io/v1alpha1
-        kind: Sensor
-        metadata:
-          # name of sensor
-          name: webhook-sensor
-          labels:
-            # instance-id must match with one of the deployed sensor controller's instance-id
-            sensors.argoproj.io/sensor-controller-instanceid: argo-events
-        spec:
-          # make this sensor as long running.
-          repeat: true
-          serviceAccountName: argo-events-sa
-          # signals/notifications this sensor is interested in.
-          signals:
-            # event must be from webhook-gateway and the configuration that produced this event must be
-            # webhook.fooConfig
-            - name: webhook-gateway/webhook.fooConfig
-          triggers:
-            - name: webhook-workflow-trigger
-              resource:
-                namespace: argo-events
-                group: argoproj.io
-                version: v1alpha1
-                kind: Workflow
-                source:
-                  inline: |
-                      apiVersion: argoproj.io/v1alpha1
-                      kind: Workflow
-                      metadata:
-                        generateName: hello-world-
-                      spec:
-                        entrypoint: whalesay
-                        templates:
-                          - name: whalesay
-                            container:
-                              args:
-                                - "hello world"
-                              command:
-                                - cowsay
-                              image: "docker/whalesay:latest"
-         ```
-    
-        This sensor defines only one signal called `webhook-gateway/webhook.fooConfig`, meaning, it is interested in listening
-        events from `webhook.fooConfig` configuration within `webhook-gateway` gateway.
-    
-    2. Run following command, 
+    1. Run following command, 
         ```bash
         kubectl create -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/sensors/webhook.yaml
         ```
 
-    3. Check whether all sensor nodes are initialized,
+    2. Check whether all sensor nodes are initialized,
         ```bash
         kubectl get -n argo-events sensors webhook-sensor   
         ```
 
-    4. Get the service url for gateway,
+    3. Get the service url for gateway,
         ```bash
         minikube service --url webhook-gateway-gateway-svc
         ```
     
-    5. If you face issue getting service url from executing above command, you can use `kubectl port-forward`
+    4. If you face issue getting service url from executing above command, you can use `kubectl port-forward`
         1. Open another terminal window and enter `kubectl port-forward <name_of_the_webhook_gateway_pod> 9003:<port_on_which_gateway_server_is_running>`
         2. You can now user `localhost:9003` to query webhook gateway
 
-    6. Send a POST request to the gateway service, and monitor namespace for new workflow
+    5. Send a POST request to the gateway service, and monitor namespace for new workflow
         ```bash
         curl -d '{"message":"this is my first webhook"}' -H "Content-Type: application/json" -X POST <WEBHOOK_SERVICE_URL>/foo
         ```
     
-    7. List argo workflows
+    6. List argo workflows
         ```bash
         argo -n argo-events list
         ```
@@ -317,33 +226,7 @@ Lets start with deploying Minio server standalone deployment. You can get the K8
         kubectl create -n argo-events -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/gateways/artifact-gateway-configmap.yaml
         ```
 
-   4. Artifact gateway definition,
-        ```yaml
-        apiVersion: argoproj.io/v1alpha1
-        kind: Gateway
-        metadata:
-          name: artifact-gateway
-          labels:
-            gateways.argoproj.io/gateway-controller-instanceid: argo-events
-            gateway-name: "artifact-gateway"
-        spec:
-          deploySpec:
-            containers:
-            - name: "artifact-events"
-              image: "argoproj/artifact-gateway"
-              imagePullPolicy: "Always"
-              command: ["/bin/artifact-gateway"]
-            serviceAccountName: "argo-events-sa"
-          configMap: "artifact-gateway-configmap"
-          version: "1.0"
-          type: "artifact"
-          dispatchMechanism: "HTTP"
-          watchers:
-            sensors:
-            - name: "artifact-sensor"
-        ```
-        
-        Execute following command to create artifact gateway,
+   4. Execute following command to create artifact gateway,
         ```bash
         kubectl -n argo-events create -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/gateways/artifact.yaml 
         ```
@@ -353,46 +236,7 @@ Lets start with deploying Minio server standalone deployment. You can get the K8
         kubectl -n argo-events  get gateways artifact-gateway -o yaml
         ```
         
-   6. Below is the sensor definition, 
-        ```yaml
-        apiVersion: argoproj.io/v1alpha1
-        kind: Sensor
-        metadata:
-          name: artifact-sensor
-          labels:
-            sensors.argoproj.io/sensor-controller-instanceid: argo-events
-        spec:
-          repeat: true
-          serviceAccountName: argo-events-sa
-          signals:
-            - name: artifact-gateway/s3.fooConfig
-          triggers:
-            - name: artifact-workflow-trigger
-              resource:
-                namespace: argo-events
-                group: argoproj.io
-                version: v1alpha1
-                kind: Workflow
-                source:
-                  inline: |
-                      apiVersion: argoproj.io/v1alpha1
-                      kind: Workflow
-                      metadata:
-                        generateName: hello-world-
-                      spec:
-                        entrypoint: whalesay
-                        templates:
-                          -
-                            container:
-                              args:
-                                - "hello world"
-                              command:
-                                - cowsay
-                              image: "docker/whalesay:latest"
-                            name: whalesay
-        ```
-        
-        Run,
+   6. Run,
         ```bash
         kubectl -n argo-events create -f https://raw.githubusercontent.com/argoproj/argo-events/trigger-param-fix/examples/sensors/s3.yaml
         ```
@@ -433,33 +277,7 @@ Calendar gateway either accepts `interval` or `cron schedules` as configuration.
     kubectl -n argo-events create -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/gateways/calendar-gateway-configmap.yaml
     ```
     
- 2. Gateway definition,
-    ```yaml
-    apiVersion: argoproj.io/v1alpha1
-    kind: Gateway
-    metadata:
-      name: calendar-gateway
-      labels:
-        gateways.argoproj.io/gateway-controller-instanceid: argo-events
-        gateway-name: "calendar-gateway"
-    spec:
-      deploySpec:
-        containers:
-        - name: "calendar-events"
-          image: "argoproj/calendar-gateway"
-          imagePullPolicy: "Always"
-          command: ["/bin/calendar-gateway"]
-        serviceAccountName: "argo-events-sa"
-      configMap: "calendar-gateway-configmap"
-      type: "calendar"
-      dispatchMechanism: "HTTP"
-      version: "1.0"
-      watchers:
-          sensors:
-          - name: "calendar-sensor"
-    ```   
-    
-    Run,
+ 2. Create calendar gateway,
     ```bash
     kubectl -n argo-events create -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/gateways/calendar.yaml
     ```
@@ -469,47 +287,7 @@ Calendar gateway either accepts `interval` or `cron schedules` as configuration.
     kubectl -n argo-events get gateways calendar-gateway -o yaml
     ```
 
- 3. Sensor definition,
-    ```yaml
-    apiVersion: argoproj.io/v1alpha1
-    kind: Sensor
-    metadata:
-      name: calendar-sensor
-      labels:
-        sensors.argoproj.io/sensor-controller-instanceid: argo-events
-    spec:
-      serviceAccountName: argo-events-sa
-      imagePullPolicy: Always
-      repeat: true
-      signals:
-        - name: calendar-gateway/calendar.fooConfig
-      triggers:
-        - name: calendar-workflow-trigger
-          resource:
-            namespace: argo-events
-            group: argoproj.io
-            version: v1alpha1
-            kind: Workflow
-            source:
-              inline: |
-                  apiVersion: argoproj.io/v1alpha1
-                  kind: Workflow
-                  metadata:
-                    generateName: hello-world-
-                  spec:
-                    entrypoint: whalesay
-                    templates:
-                      -
-                        container:
-                          args:
-                            - "hello world"
-                          command:
-                            - cowsay
-                          image: "docker/whalesay:latest"
-                        name: whalesay
-    ```
-    
-    Run,
+ 3. Create calendar sensor,
     ```bash
     kubectl -n argo-events create -f  https://raw.githubusercontent.com/argoproj/argo-events/master/examples/sensors/calendar.yaml
     ```
@@ -564,33 +342,7 @@ Resource gateway can monitor any K8 resource and any CRD.
     kubectl -n argo-events create -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/gateways/resource-gateway-configmap.yaml
     ```
  
- 2. Gateway definition,
-    ```yaml
-    apiVersion: argoproj.io/v1alpha1
-    kind: Gateway
-    metadata:
-      name: resource-gateway
-      labels:
-        gateways.argoproj.io/gateway-controller-instanceid: argo-events
-        gateway-name: "resource-gateway"
-    spec:
-      deploySpec:
-        containers:
-        - name: "resource-events"
-          image: "argoproj/resource-gateway"
-          imagePullPolicy: "Always"
-          command: ["/bin/resource-gateway"]
-        serviceAccountName: "argo-events-sa"
-      configMap: "resource-gateway-configmap"
-      type: "resource"
-      dispatchMechanism: "HTTP"
-      version: "1.0"
-      watchers:
-        sensors:
-        - name: "resource-sensor"
-    ```
-    
-    Run,
+ 2. Create resource gateway,
     ```bash
     kubectl -n argo-events create -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/gateways/resource.yaml
     ```
@@ -600,47 +352,7 @@ Resource gateway can monitor any K8 resource and any CRD.
     kubectl -n argo-events get gateways resource-gateway -o yaml
     ```
     
- 3. Sensor definition,
-    ```yaml
-    apiVersion: argoproj.io/v1alpha1
-    kind: Sensor
-    metadata:
-      name: resource-sensor
-      labels:
-        sensors.argoproj.io/sensor-controller-instanceid: argo-events
-    spec:
-      repeat: true
-      serviceAccountName: argo-events-sa
-      signals:
-        - name: resource-gateway/resource.fooConfig
-      triggers:
-        - name: argo-workflow
-          resource:
-            namespace: argo-events
-            group: argoproj.io
-            version: v1alpha1
-            kind: Workflow
-            source:
-              inline: |
-                  apiVersion: argoproj.io/v1alpha1
-                  kind: Workflow
-                  metadata:
-                    generateName: hello-world-
-                  spec:
-                    entrypoint: whalesay
-                    templates:
-                      -
-                        container:
-                          args:
-                            - "hello world"
-                          command:
-                            - cowsay
-                          image: "docker/whalesay:latest"
-                        name: whalesay
-
-    ```
-    
-    Run,
+ 3. Create resource sensor,
     ```bash
     kubectl -n argo-events create -f https://raw.githubusercontent.com/argoproj/argo-events/master/examples/sensors/resource.yaml
     ``` 
