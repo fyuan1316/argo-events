@@ -17,10 +17,22 @@ type httpConfigExecutor struct {
 	*gateways.HttpGatewayServerConfig
 }
 
-func (ce *httpConfigExecutor) StartConfig(config *gateways.ConfigContext) {
+func (ce *httpConfigExecutor) sendHttpRequest(config *gateways.ConfigData, endpoint string) error {
+	payload, err := json.Marshal(config)
+	if err != nil {
+		ce.GwConfig.Log.Error().Str("config-key", config.Src).Err(err).Msg("failed to marshal configuration")
+		return err
+	}
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s%s", ce.HttpServerPort, endpoint), "application/octet-stream", bytes.NewReader(payload))
+	if err != nil {
+		ce.GwConfig.Log.Warn().Str("config-key", config.Src).Err(err).Msg("failed to dispatch event to gateway")
+		return err
+	}
+	return nil
+}
 
-	errChan := make(chan error)
-
+// receiveEvents receives events from gateway event generator
+func (ce *httpConfigExecutor) receiveEvents(errChan chan error) {
 	http.HandleFunc(ce.EventEndpoint, func(writer http.ResponseWriter, request *http.Request) {
 		ce.GwConfig.Log.Info().Msg("received an event")
 		var event gateways.GatewayEvent
@@ -36,23 +48,28 @@ func (ce *httpConfigExecutor) StartConfig(config *gateways.ConfigContext) {
 			common.SendErrorResponse(writer)
 			return
 		}
-		common.SendSuccessResponse(writer)
-		ce.GwConfig.DispatchEvent(&event)
+		err = ce.GwConfig.DispatchEvent(&event)
+		if err != nil {
+			errChan <- err
+		}
 	})
+}
 
+// receiveConfActivation listens to configuration activated notification from gateway event generator
+func (ce *httpConfigExecutor) receiveConfActivation(config *gateways.ConfigContext, errChan chan error) {
 	http.HandleFunc(ce.ConfigActivatedEndpoint, func(writer http.ResponseWriter, request *http.Request) {
-		ce.GwConfig.Log.Info().Msg("config running notification")
+		ce.GwConfig.Log.Info().Msg("config activated notification")
 		var c *gateways.ConfigData
 		body, err := ioutil.ReadAll(request.Body)
 		if err != nil {
-			ce.GwConfig.Log.Error().Err(err).Msg("failed to read request body")
-			common.SendErrorResponse(writer)
+			ce.GwConfig.Log.Error().Err(err).Msg("failed to read config activated notification")
+			errChan <- err
 			return
 		}
 		err = json.Unmarshal(body, &c)
 		if err != nil {
-			ce.GwConfig.Log.Error().Err(err).Msg("failed to read request body")
-			common.SendErrorResponse(writer)
+			ce.GwConfig.Log.Error().Err(err).Msg("failed to parse config activated notification")
+			errChan <- err
 			return
 		}
 		common.SendSuccessResponse(writer)
@@ -60,24 +77,36 @@ func (ce *httpConfigExecutor) StartConfig(config *gateways.ConfigContext) {
 		_, err = common.CreateK8Event(event, ce.GwConfig.Clientset)
 		if err != nil {
 			ce.GwConfig.Log.Error().Str("config-key", c.Src).Err(err).Msg("failed to mark configuration as running")
+			errChan <- err
+			return
 		}
 		config.StartChan <- struct{}{}
 	})
+}
 
+// receiveConfError receives error notification in a configuration
+func (ce *httpConfigExecutor) receiveConfError(errChan chan error) {
 	http.HandleFunc(ce.ConfigErrorEndpoint, func(writer http.ResponseWriter, request *http.Request) {
 		ce.GwConfig.Log.Info().Msg("config error notification")
 		body, err := ioutil.ReadAll(request.Body)
 		if err != nil {
-			ce.GwConfig.Log.Error().Err(err).Msg("failed to read request body")
-			common.SendErrorResponse(writer)
+			ce.GwConfig.Log.Error().Err(err).Msg("failed to read config error notification")
 			errChan <- fmt.Errorf("error occurred in configuration")
 			return
 		}
 		errChan <- fmt.Errorf(string(body))
-		return
 	})
+}
 
-	ce.GwConfig.Log.Info().Str("config-key", config.Data.Src).Msg("dispatching configuration configuration to start")
+// StartConfig starts a configuration
+func (ce *httpConfigExecutor) StartConfig(config *gateways.ConfigContext) {
+	errChan := make(chan error)
+	go ce.receiveEvents(errChan)
+	go ce.receiveConfActivation(config, errChan)
+	go ce.receiveConfError(errChan)
+
+	// dispatch a new configuration to gateway event generator
+	ce.GwConfig.Log.Info().Str("config-key", config.Data.Src).Msg("dispatching configuration to start")
 	err := ce.sendHttpRequest(&gateways.ConfigData{
 		ID:     config.Data.ID,
 		TimeID: config.Data.TimeID,
@@ -106,6 +135,7 @@ func (ce *httpConfigExecutor) StartConfig(config *gateways.ConfigContext) {
 	}
 }
 
+// StopConfig stops a configuration
 func (ce *httpConfigExecutor) StopConfig(config *gateways.ConfigContext) {
 	ce.GwConfig.Log.Info().Str("config-key", config.Data.Src).Msg("dispatching stop configuration notification")
 	err := ce.sendHttpRequest(&gateways.ConfigData{
@@ -117,21 +147,9 @@ func (ce *httpConfigExecutor) StopConfig(config *gateways.ConfigContext) {
 	}
 }
 
+// Validate validates a configuration. In case of HTTP flavor gateway, the gateway event generator will
+// perform validations on configuration
 func (ce *httpConfigExecutor) Validate(configContext *gateways.ConfigContext) error {
-	return nil
-}
-
-func (ce *httpConfigExecutor) sendHttpRequest(config *gateways.ConfigData, endpoint string) error {
-	payload, err := json.Marshal(config)
-	if err != nil {
-		ce.GwConfig.Log.Error().Str("config-key", config.Src).Err(err).Msg("failed to marshal configuration")
-		return err
-	}
-	_, err = http.Post(fmt.Sprintf("http://localhost:%s%s", ce.HttpServerPort, endpoint), "application/octet-stream", bytes.NewReader(payload))
-	if err != nil {
-		ce.GwConfig.Log.Warn().Str("config-key", config.Src).Err(err).Msg("failed to dispatch event to gateway")
-		return err
-	}
 	return nil
 }
 

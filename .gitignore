@@ -10,3 +10,5 @@ debug.test
 *.iml
 .coverage
 *.out
+gateways/rest/gateway-in-nodejs/node_modules/
+gateways/rest/gateway-in-nodejs/package-lock.json
